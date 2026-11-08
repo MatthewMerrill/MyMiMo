@@ -1,0 +1,13 @@
+{
+  "name": "mymimo-root",
+  "private": true,
+  "workspaces": ["api", "web"],
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c blue,magenta \"npm run dev -w api\" \"npm run dev -w web\"",
+    "build": "npm run build -w web",
+    "typecheck": "npm run typecheck -w api && npm run build -w web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
