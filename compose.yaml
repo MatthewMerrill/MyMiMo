@@ -7,7 +7,9 @@ services:
     container_name: mymimo
     restart: unless-stopped
     ports:
-      - "3000:3000"           # put your HTTPS reverse proxy in front of this
+      - "${PORT:-3000}:3000"  # host port from PORT in .env; put your HTTPS proxy in front of it
+    environment:
+      PORT: 3000              # inside the container it's always 3000 (overrides PORT from .env)
     env_file:
       - path: .env            # copy .env.production.example to .env and fill it in
         required: false
