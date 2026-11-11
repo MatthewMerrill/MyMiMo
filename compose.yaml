@@ -1,0 +1,15 @@
+# docker compose up -d --build
+# Run only one instance (SQLite). Back up ./data (see .env.production.example).
+services:
+  mymimo:
+    build: .
+    image: mymimo:latest
+    container_name: mymimo
+    restart: unless-stopped
+    ports:
+      - "3000:3000"           # put your HTTPS reverse proxy in front of this
+    env_file:
+      - path: .env            # copy .env.production.example to .env and fill it in
+        required: false
+    volumes:
+      - ./data:/data          # the SQLite database lives here, next to this file

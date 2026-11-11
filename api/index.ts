@@ -1,7 +1,9 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { DATABASE_PATH } from './db.ts';
 import { seedDemoIfEmpty } from './seed.ts';
-import { authRouter, requireUser, resolveUser, userInHome } from './auth.ts';
+import { authEnabled, authRouter, requireUser, resolveUser, userInHome } from './auth.ts';
 import { HttpError, asBody, idParam, optBool, optInt, optText, type Body } from './http.ts';
 import * as tasks from './tasks.ts';
 import * as pages from './pages.ts';
@@ -281,6 +283,17 @@ api.get('/search', (req, res) => {
 app.use('/api', api);
 app.use('/api', (_req, _res, next) => next(new HttpError(404, 'not found')));
 
+// In production the API also serves the built web app (one origin keeps login cookies simple).
+// In dev, Vite serves the app on :5173 and proxies /api here instead.
+const WEB_DIST = process.env.WEB_DIST ?? resolve(import.meta.dirname, '../web/dist');
+if (existsSync(resolve(WEB_DIST, 'index.html'))) {
+    // Vite puts a content hash in asset filenames, so they can be cached forever.
+    app.use('/assets', express.static(resolve(WEB_DIST, 'assets'), { immutable: true, maxAge: '1y' }));
+    // index.html must always be revalidated so a deploy is picked up on the next load.
+    app.use(express.static(WEB_DIST, { setHeaders: res => res.setHeader('Cache-Control', 'no-cache') }));
+    console.log(`[web] serving ${WEB_DIST}`);
+}
+
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof HttpError) {
         res.status(err.status).json({ error: err.message });
@@ -295,6 +308,11 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 // Express 5 passes listen errors (e.g. port in use) to this callback instead of throwing.
+if (process.env.NODE_ENV === 'production' && !authEnabled) {
+    console.warn('[auth] login is disabled: anyone who can reach this server has full access. '
+        + 'Set DISCORD_CLIENT_ID/DISCORD_CLIENT_SECRET, or keep it on a private network.');
+}
+
 app.listen(port, (err?: Error) => {
     if (err) {
         console.error(`[api] could not listen on port ${port}: ${err.message}`);
