@@ -10,7 +10,7 @@ export function LoginView() {
   return (
     <div className="login">
       <h1>mymimo</h1>
-      <p className="muted">Things, notes, and the tasks that go with them.</p>
+      <p className="muted">Pages, notes, and the tasks that go with them.</p>
       {code && <p className="error">{MESSAGES[code] ?? `Sign-in failed (${code}).`}</p>}
       <a className="button primary" href="/api/auth/discord/login">Sign in with Discord</a>
     </div>

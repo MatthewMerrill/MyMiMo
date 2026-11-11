@@ -223,8 +223,8 @@ button.link.danger { color: var(--danger); }
 
 /* ---------------------------------------------------------------- things */
 
-.thing-categories { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
-.thing-categories .error { flex-basis: 100%; }
+.page-categories { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+.page-categories .error { flex-basis: 100%; }
 .tag.removable { display: inline-flex; align-items: center; gap: 2px; padding-right: 2px; }
 .tag.removable button { padding: 0 4px; border: 0; background: none; color: var(--faint); font-size: 0.9rem; line-height: 1; }
 .tag.removable button:hover { color: var(--danger); }
@@ -249,10 +249,11 @@ button.link.danger { color: var(--danger); }
 .tree .tree { margin-left: 6px; padding-left: 16px; border-left: 1px solid var(--rule); }
 .counts { color: var(--faint); font-size: 0.85rem; flex: none; }
 
-.thing-list li { padding: 10px 0; border-bottom: 1px solid var(--rule); }
-.thing-list .title { font-weight: 600; }
-.thing-list .where { color: var(--faint); font-size: 0.875rem; }
-.thing-list .snippet { color: var(--muted); font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.page-list li { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--rule); }
+.page-list-main { flex: 1; min-width: 0; }
+.page-list .title { font-weight: 600; }
+.page-list .where { color: var(--faint); font-size: 0.875rem; }
+.page-list .snippet { color: var(--muted); font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---------------------------------------------------------------- sidebar (wiki-style) */
 
@@ -297,3 +298,63 @@ main .account { margin-top: 40px; border-top: 1px solid var(--rule); }
 
 .login { max-width: 22rem; margin: 18vh auto 0; padding: 0 16px; display: grid; gap: 12px; text-align: center; }
 .login .button { justify-self: center; padding: 8px 18px; font-size: 1rem; }
+
+/* ---------------------------------------------------------------- pages: cover, thumbs, header */
+
+.title-actions, .section-actions { display: flex; align-items: center; gap: 12px; }
+.cover { display: block; width: 100%; max-height: 320px; object-fit: cover; margin-top: 12px; border: 1px solid var(--rule); border-radius: var(--radius); }
+.thumb { flex: none; width: 48px; height: 48px; object-fit: cover; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--surface); }
+.thumb.empty { display: inline-block; }
+.cover-field { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.missing-title { color: var(--danger); }
+
+/* ---------------------------------------------------------------- rendered markdown */
+
+.markdown { overflow-wrap: anywhere; }
+.markdown > :first-child { margin-top: 0; }
+.markdown > :last-child { margin-bottom: 0; }
+.markdown p, .markdown ul, .markdown ol, .markdown pre, .markdown blockquote, .markdown .table-wrap { margin: 0 0 10px; }
+.markdown ul, .markdown ol { padding-left: 1.5em; list-style: revert; }
+.markdown li { margin: 2px 0; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4 { font-weight: 600; line-height: 1.3; margin: 18px 0 6px; }
+.markdown h1 { font-size: 1.3rem; }
+.markdown h2 { font-size: 1.12rem; }
+.markdown h3, .markdown h4 { font-size: 1rem; }
+.markdown blockquote { padding-left: 12px; border-left: 3px solid var(--rule); color: var(--muted); }
+.markdown code { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 0.88em; padding: 1px 4px; background: var(--surface); border-radius: 3px; }
+.markdown pre { padding: 10px 12px; overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius); }
+.markdown pre code { padding: 0; background: none; }
+.markdown hr { border: 0; border-top: 1px solid var(--rule); margin: 16px 0; }
+.markdown .md-image { display: inline-block; max-width: 100%; }
+.markdown img { display: block; max-width: 100%; max-height: 480px; border: 1px solid var(--rule); border-radius: var(--radius); }
+
+/* Checklists: no bullets, checkbox in the gutter. */
+.markdown li.task-list-item { list-style: none; margin-left: -1.4em; }
+.markdown li.task-list-item input[type='checkbox'] { width: 16px; height: 16px; margin: 0 6px 0 0; vertical-align: -2px; accent-color: var(--link); }
+.markdown li.task-list-item input[type='checkbox']:disabled { opacity: 1; }
+
+.wikilink.missing { color: var(--danger); }
+
+.table-wrap { overflow-x: auto; }
+.markdown table { border-collapse: collapse; font-size: 0.92rem; }
+.markdown th, .markdown td { padding: 4px 10px; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+.markdown th { background: var(--surface); font-weight: 600; }
+table.csv th { padding: 0; }
+table.csv th button { width: 100%; padding: 4px 10px; border: 0; border-radius: 0; background: none; font: inherit; font-weight: 600; text-align: left; }
+table.csv th button:hover { color: var(--link); }
+.sort-mark { color: var(--muted); font-size: 0.75em; }
+
+/* Log entries and task details render markdown too, a little tighter. */
+.notes .markdown p, .notes .markdown ul, .notes .markdown ol { margin-bottom: 4px; }
+.task-details-full { margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--rule); }
+
+/* ---------------------------------------------------------------- markdown editor */
+
+.md-editor textarea { display: block; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: max(16px, 0.9rem); }
+.md-tabs { display: flex; align-items: flex-end; gap: 2px; margin-bottom: -1px; }
+.md-tabs [role='tab'] { padding: 4px 12px; border-radius: var(--radius) var(--radius) 0 0; border-bottom-color: transparent; background: none; color: var(--muted); }
+.md-tabs [role='tab'][aria-selected='true'] { background: var(--bg); border-color: var(--border); border-bottom-color: var(--bg); color: var(--text); position: relative; z-index: 1; }
+.md-tabs .link { margin: 0 4px 4px 0; }
+.md-preview { min-height: 6rem; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); }
+.md-help { margin-top: 4px; font-size: 0.78rem; }
+.add-photo { margin-top: 4px; font-size: 0.8rem; }

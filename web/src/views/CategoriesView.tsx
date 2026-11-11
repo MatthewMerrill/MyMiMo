@@ -13,7 +13,7 @@ export function CategoriesView() {
     <article>
       <header className="page-head">
         <h1>Categories</h1>
-        <p className="hint">A thing can be in any number of categories.</p>
+        <p className="hint">Tags for pages. A page can be in any number of them, e.g. Guides, Appliances, Hobbies.</p>
       </header>
 
       <Section title="All categories" count={data?.categories.length}>
@@ -27,13 +27,13 @@ export function CategoriesView() {
           {data?.categories.map((c) => (
             <li key={c.id}>
               <a href={href.category(c.id)}>{c.name}</a>
-              <span className="counts">{c.thing_count} {c.thing_count === 1 ? 'thing' : 'things'}</span>
+              <span className="counts">{c.page_count} {c.page_count === 1 ? 'page' : 'pages'}</span>
             </li>
           ))}
           {data && data.uncategorized > 0 && (
             <li>
               <a href={href.category('uncategorized')}><i>Uncategorized</i></a>
-              <span className="counts">{data.uncategorized} {data.uncategorized === 1 ? 'thing' : 'things'}</span>
+              <span className="counts">{data.uncategorized} {data.uncategorized === 1 ? 'page' : 'pages'}</span>
             </li>
           )}
         </ul>

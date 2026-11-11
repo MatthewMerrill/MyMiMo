@@ -48,12 +48,12 @@ export function idParam(raw: string | string[] | undefined): number {
 export function patchRow(
     db: { prepare(sql: string): { run(...a: (string | number | null)[]): unknown } },
     table: string, columns: readonly string[], patch: Record<string, unknown>,
-    homeId: number, id: number,
+    homeId: number, id: number, extraSet = '',
 ): void {
     const cols = columns.filter(c => c in patch);
     if (cols.length === 0) return;
     // Column names come from the fixed whitelist, never from input.
     const sets = cols.map(c => `${c} = ?`).join(', ');
-    db.prepare(`UPDATE ${table} SET ${sets}, updated_at = unixepoch() WHERE home_id = ? AND id = ?`)
+    db.prepare(`UPDATE ${table} SET ${sets}, updated_at = unixepoch()${extraSet} WHERE home_id = ? AND id = ?`)
         .run(...cols.map(c => (patch[c] ?? null) as string | number | null), homeId, id);
 }

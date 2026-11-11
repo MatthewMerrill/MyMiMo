@@ -1,18 +1,24 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
+import { DATABASE_PATH } from './db.ts';
+import { seedDemoIfEmpty } from './seed.ts';
 import { authRouter, requireUser, resolveUser, userInHome } from './auth.ts';
 import { HttpError, asBody, idParam, optBool, optInt, optText, type Body } from './http.ts';
 import * as tasks from './tasks.ts';
-import * as things from './things.ts';
+import * as pages from './pages.ts';
 import * as notes from './notes.ts';
 import * as categories from './categories.ts';
+import * as images from './images.ts';
 import { search } from './search.ts';
+
+seedDemoIfEmpty();
 
 const app = express();
 const port = Number(process.env.PORT ?? 3000);
 
-app.use(express.json());
+// Image uploads arrive as base64 JSON (already downscaled in the browser), hence the limit.
+app.use(express.json({ limit: '8mb' }));
 
-// Who's asking: a Discord session, or the seeded demo user when auth isn't configured.
+// Who's asking: a Discord session, or the home's owner when login isn't configured.
 interface Ctx { homeId: number; userId: number }
 function ctx(res: Response): Ctx { return res.locals as Ctx; }
 app.use('/api', resolveUser);
@@ -29,23 +35,35 @@ function pick<T>(body: Body, keys: readonly string[], parse: (b: Body, k: string
     return out;
 }
 
-/** `?thing_id=5` → 5, `?thing_id=none` → null, absent → undefined. */
-function thingQuery(req: Request): number | null | undefined {
-    const v = req.query.thing_id;
+/** `?page_id=5` → 5, `?page_id=none` → null, absent → undefined. */
+function pageQuery(req: Request): number | null | undefined {
+    const v = req.query.page_id;
     if (v === undefined) return undefined;
     if (v === 'none') return null;
     return idParam(String(v));
 }
 
+/** Markdown fields keep their whitespace (indentation matters); only all-blank becomes null. */
+function optMarkdown(body: Body, key: string): string | null | undefined {
+    const v = body[key];
+    if (v === undefined || v === null) return v;
+    if (typeof v !== 'string') throw new HttpError(400, `${key} must be a string or null`);
+    if (v.length > 200_000) throw new HttpError(413, `${key} is too long`);
+    return v.trim() === '' ? null : v.replace(/\s+$/, '');
+}
+
+const api = express.Router();
+
 // ---------------------------------------------------------------- tasks
 
 function parseTaskFields(homeId: number, body: Body): tasks.TaskFields {
     const out: tasks.TaskFields = {
-        ...pick(body, ['brief', 'details', 'recur'], optText),
-        ...pick(body, ['thing_id', 'assignee_id', 'due_at', 'priority', 'completed_at'], optInt),
+        ...pick(body, ['brief', 'recur'], optText),
+        ...pick(body, ['details'], optMarkdown),
+        ...pick(body, ['page_id', 'assignee_id', 'due_at', 'priority', 'completed_at'], optInt),
     };
     if ('brief' in out && !out.brief) throw new HttpError(400, 'brief must not be empty');
-    things.assertThing(homeId, out.thing_id);
+    pages.assertPage(homeId, out.page_id);
     if (out.assignee_id != null && !userInHome(homeId, out.assignee_id)) {
         throw new HttpError(400, 'assignee_id not found');
     }
@@ -58,11 +76,8 @@ function parseTaskFields(homeId: number, body: Body): tasks.TaskFields {
     return out;
 }
 
-const api = express.Router();
-
 api.get('/tasks', (req, res) => {
-    const thingId = thingQuery(req);
-    res.json(tasks.listTasks(ctx(res).homeId, thingId ?? undefined));
+    res.json(tasks.listTasks(ctx(res).homeId, pageQuery(req) ?? undefined));
 });
 
 api.post('/tasks', (req, res) => {
@@ -73,8 +88,8 @@ api.post('/tasks', (req, res) => {
 });
 
 api.patch('/tasks/:id', (req, res) => {
-    const { homeId } = ctx(res);
-    const task = tasks.updateTask(homeId, idParam(req.params.id), parseTaskFields(homeId, asBody(req.body)));
+    const { homeId, userId } = ctx(res);
+    const task = tasks.updateTask(homeId, idParam(req.params.id), parseTaskFields(homeId, asBody(req.body)), userId);
     if (!task) throw new HttpError(404, 'not found');
     res.json(task);
 });
@@ -84,53 +99,65 @@ api.delete('/tasks/:id', (req, res) => {
     res.sendStatus(204);
 });
 
-// ---------------------------------------------------------------- things
+// ---------------------------------------------------------------- pages
 
-function parseThingFields(body: Body): things.ThingFields {
-    return {
-        ...pick(body, ['name', 'body'], optText),
-        ...pick(body, ['parent_id', 'archived_at'], optInt),
+function parsePageFields(homeId: number, body: Body): pages.PageFields {
+    const out: pages.PageFields = {
+        ...pick(body, ['title'], optText),
+        ...pick(body, ['body'], optMarkdown),
+        ...pick(body, ['parent_id', 'archived_at', 'cover_image_id'], optInt),
+        ...pick(body, ['pinned'], optBool),
     };
+    if (out.title && out.title.length > 200) throw new HttpError(400, 'title is too long');
+    if (typeof out.cover_image_id === 'number' && !images.imageInHome(homeId, out.cover_image_id)) {
+        throw new HttpError(400, 'cover_image_id not found');
+    }
+    return out;
 }
 
-api.get('/things', (_req, res) => {
-    res.json(things.listThings(ctx(res).homeId));
+api.get('/pages', (_req, res) => {
+    res.json(pages.listPages(ctx(res).homeId));
 });
 
-/** Everything the thing page needs in one round trip. */
-api.get('/things/:id', (req, res) => {
+/** Everything the page view needs in one round trip. */
+api.get('/pages/:id', (req, res) => {
     const { homeId } = ctx(res);
     const id = idParam(req.params.id);
-    const thing = things.getThing(homeId, id);
-    if (!thing) throw new HttpError(404, 'not found');
+    const page = pages.getPage(homeId, id);
+    if (!page) throw new HttpError(404, 'not found');
     res.json({
-        thing,
-        ancestors: things.ancestors(homeId, id),
-        children: things.childThings(homeId, id),
+        page,
+        ancestors: pages.ancestors(homeId, id),
+        children: pages.childPages(homeId, id),
         notes: notes.listNotes(homeId, id),
         tasks: tasks.listTasks(homeId, id),
+        linked_from: pages.linkedFrom(homeId, page),
     });
 });
 
-api.post('/things', (req, res) => {
+api.post('/pages', (req, res) => {
     const { homeId } = ctx(res);
     const body = asBody(req.body);
     const categoryId = optInt(body, 'category_id');
     categories.assertCategory(homeId, categoryId);
-    res.status(201).json(things.createThing(homeId, parseThingFields(body), categoryId));
+    res.status(201).json(pages.createPage(homeId, parsePageFields(homeId, body), categoryId));
 });
 
-api.patch('/things/:id', (req, res) => {
-    const thing = things.updateThing(ctx(res).homeId, idParam(req.params.id), parseThingFields(asBody(req.body)));
-    if (!thing) throw new HttpError(404, 'not found');
-    res.json(thing);
+/** Send `version` with body edits to get a 409 instead of overwriting someone else's save. */
+api.patch('/pages/:id', (req, res) => {
+    const { homeId } = ctx(res);
+    const body = asBody(req.body);
+    const version = optInt(body, 'version') ?? undefined;
+    const page = pages.updatePage(homeId, idParam(req.params.id), parsePageFields(homeId, body), version);
+    if (!page) throw new HttpError(404, 'not found');
+    res.json(page);
 });
 
-/** Tag a thing: `{ category_id }` or `{ name }` (found case-insensitively, created if new). */
-api.post('/things/:id/categories', (req, res) => {
+/** Tag a page: `{ category_id }` or `{ name }` (found case-insensitively, created if new). */
+api.post('/pages/:id/categories', (req, res) => {
     const { homeId } = ctx(res);
     const id = idParam(req.params.id);
-    if (!things.thingInHome(homeId, id)) throw new HttpError(404, 'not found');
+    if (!pages.pageInHome(homeId, id)) throw new HttpError(404, 'not found');
     const body = asBody(req.body);
     const categoryId = optInt(body, 'category_id');
     const name = optText(body, 'name');
@@ -143,16 +170,16 @@ api.post('/things/:id/categories', (req, res) => {
     } else {
         throw new HttpError(400, 'category_id or name is required');
     }
-    things.linkCategory(id, catId);
-    res.json(things.getThing(homeId, id));
+    pages.linkCategory(id, catId);
+    res.json(pages.getPage(homeId, id));
 });
 
-api.delete('/things/:id/categories/:categoryId', (req, res) => {
+api.delete('/pages/:id/categories/:categoryId', (req, res) => {
     const { homeId } = ctx(res);
     const id = idParam(req.params.id);
-    if (!things.thingInHome(homeId, id)) throw new HttpError(404, 'not found');
-    things.unlinkCategory(id, idParam(req.params.categoryId));
-    res.json(things.getThing(homeId, id));
+    if (!pages.pageInHome(homeId, id)) throw new HttpError(404, 'not found');
+    pages.unlinkCategory(id, idParam(req.params.categoryId));
+    res.json(pages.getPage(homeId, id));
 });
 
 // ---------------------------------------------------------------- categories
@@ -162,7 +189,7 @@ api.get('/categories', (_req, res) => {
 });
 
 api.get('/categories/uncategorized', (_req, res) => {
-    res.json({ things: categories.uncategorizedThings(ctx(res).homeId) });
+    res.json({ pages: categories.uncategorizedPages(ctx(res).homeId) });
 });
 
 api.get('/categories/:id', (req, res) => {
@@ -194,17 +221,17 @@ api.delete('/categories/:id', (req, res) => {
 
 function parseNoteFields(homeId: number, body: Body): notes.NoteFields {
     const out: notes.NoteFields = {
-        ...pick(body, ['body'], optText),
-        ...pick(body, ['thing_id'], optInt),
+        ...pick(body, ['body'], optMarkdown),
+        ...pick(body, ['page_id'], optInt),
         ...pick(body, ['pinned'], optBool),
     };
     if ('body' in out && !out.body) throw new HttpError(400, 'body must not be empty');
-    things.assertThing(homeId, out.thing_id);
+    pages.assertPage(homeId, out.page_id);
     return out;
 }
 
 api.get('/notes', (req, res) => {
-    res.json(notes.listNotes(ctx(res).homeId, thingQuery(req)));
+    res.json(notes.listNotes(ctx(res).homeId, pageQuery(req)));
 });
 
 api.post('/notes', (req, res) => {
@@ -226,6 +253,25 @@ api.delete('/notes/:id', (req, res) => {
     res.sendStatus(204);
 });
 
+// ---------------------------------------------------------------- images
+
+/** Body: { data, thumb } as base64 (downscaled in the browser), plus width/height. */
+api.post('/images', (req, res) => {
+    const { homeId, userId } = ctx(res);
+    res.status(201).json(images.createImage(homeId, userId, asBody(req.body) as unknown as images.ImageUpload));
+});
+
+api.get('/images/:id', (req, res) => {
+    const img = images.getImage(ctx(res).homeId, idParam(req.params.id), req.query.thumb !== undefined);
+    if (!img) throw new HttpError(404, 'not found');
+    res.set({
+        'Content-Type': img.mime,
+        'Cache-Control': 'private, max-age=31536000, immutable', // images never change once uploaded
+        'X-Content-Type-Options': 'nosniff',
+    });
+    res.send(Buffer.from(img.bytes));
+});
+
 // ---------------------------------------------------------------- search
 
 api.get('/search', (req, res) => {
@@ -240,12 +286,19 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
         res.status(err.status).json({ error: err.message });
     } else if (err instanceof SyntaxError) {
         res.status(400).json({ error: 'invalid JSON' });
+    } else if ((err as { type?: string }).type === 'entity.too.large') {
+        res.status(413).json({ error: 'request too large' });
     } else {
         console.error(err);
         res.status(500).json({ error: 'internal error' });
     }
 });
 
-app.listen(port, () => {
-    console.log(`mymimo api listening on http://localhost:${port}`);
+// Express 5 passes listen errors (e.g. port in use) to this callback instead of throwing.
+app.listen(port, (err?: Error) => {
+    if (err) {
+        console.error(`[api] could not listen on port ${port}: ${err.message}`);
+        process.exit(1);
+    }
+    console.log(`mymimo api listening on http://localhost:${port} (db: ${DATABASE_PATH})`);
 });

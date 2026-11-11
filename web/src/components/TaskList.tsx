@@ -1,8 +1,11 @@
 import { useState, type FormEvent } from 'react'
 import { api, type Task } from '../api.ts'
-import { useMutate, useThings, useUpdateTask } from '../hooks.ts'
+import { useMutate, usePages, useUpdateTask } from '../hooks.ts'
 import { href } from '../route.ts'
 import { dueLabel, fromDateInput, nowSec, toDateInput } from '../time.ts'
+import { plainText } from '../wiki.ts'
+import { Markdown } from './Markdown.tsx'
+import { MarkdownEditor } from './MarkdownEditor.tsx'
 
 const PRIORITY: Record<number, string> = { 1: 'high', 2: 'normal', 3: 'low' }
 const REPEAT: [string, string][] = [
@@ -13,13 +16,13 @@ const repeatLabel = (r: string) => REPEAT.find(([v]) => v === r)?.[1] ?? `Repeat
 
 interface ListProps {
   tasks: Task[]
-  /** Hide the thing link (e.g. on that thing's own page). */
-  showThing?: boolean
+  /** Hide the page link (e.g. on that page itself). */
+  showPage?: boolean
   /** Hide the "inbox" marker when the surrounding grouping already says it. */
   showInbox?: boolean
 }
 
-export function TaskList({ tasks, showThing = true, showInbox = true }: ListProps) {
+export function TaskList({ tasks, showPage = true, showInbox = true }: ListProps) {
   const [editing, setEditing] = useState<number | null>(null)
   if (tasks.length === 0) return null
   return (
@@ -28,7 +31,7 @@ export function TaskList({ tasks, showThing = true, showInbox = true }: ListProp
         <TaskItem
           key={t.id}
           task={t}
-          showThing={showThing}
+          showPage={showPage}
           showInbox={showInbox}
           editing={editing === t.id}
           onEdit={() => setEditing(editing === t.id ? null : t.id)}
@@ -41,14 +44,14 @@ export function TaskList({ tasks, showThing = true, showInbox = true }: ListProp
 
 interface ItemProps {
   task: Task
-  showThing: boolean
+  showPage: boolean
   showInbox: boolean
   editing: boolean
   onEdit: () => void
   onClose: () => void
 }
 
-function TaskItem({ task: t, showThing, showInbox, editing, onEdit, onClose }: ItemProps) {
+function TaskItem({ task: t, showPage, showInbox, editing, onEdit, onClose }: ItemProps) {
   const update = useUpdateTask()
   const pending = t.id < 0
   const due = t.due_at && !t.completed_at ? dueLabel(t.due_at) : null
@@ -69,12 +72,12 @@ function TaskItem({ task: t, showThing, showInbox, editing, onEdit, onClose }: I
           <button className="brief" onClick={onEdit} disabled={pending} aria-expanded={editing}>
             {t.brief}
           </button>
-          {t.details && !editing && <p className="task-details">{t.details}</p>}
+          {t.details && !editing && <p className="task-details">{plainText(t.details).split('\n')[0]}</p>}
           <div className="meta">
             {due && <span className={`tag due-${due.tone}`}>{due.text}</span>}
             {priority && <span className={`tag pri-${priority}`}>{priority}</span>}
             {t.recur && <span className="tag" title={repeatLabel(t.recur)}>↻ {repeatLabel(t.recur).replace('Every ', '')}</span>}
-            {showThing && t.thing_id && <a className="tag link" href={href.thing(t.thing_id)}>{t.thing_name}</a>}
+            {showPage && t.page_id && <a className="tag link" href={href.page(t.page_id)}>{t.page_title}</a>}
             {showInbox && t.priority == null && !t.completed_at && !pending && (
               <span className="tag inbox" title="Not triaged yet. Click to add a date or priority.">inbox</span>
             )}
@@ -88,7 +91,7 @@ function TaskItem({ task: t, showThing, showInbox, editing, onEdit, onClose }: I
 }
 
 function TaskEditor({ task, onClose }: { task: Task; onClose: () => void }) {
-  const { data: things = [] } = useThings()
+  const { data: pages = [] } = usePages()
   const update = useUpdateTask()
   const remove = useMutate(() => api.deleteTask(task.id))
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -97,11 +100,11 @@ function TaskEditor({ task, onClose }: { task: Task; onClose: () => void }) {
   const [due, setDue] = useState(toDateInput(task.due_at))
   const [priority, setPriority] = useState(task.priority == null ? '' : String(task.priority))
   const [recur, setRecur] = useState(task.recur ?? '')
-  const [thingId, setThingId] = useState(task.thing_id == null ? '' : String(task.thing_id))
+  const [pageId, setPageId] = useState(task.page_id == null ? '' : String(task.page_id))
   const error = update.error ?? remove.error
 
-  function save(e: FormEvent) {
-    e.preventDefault()
+  function save(e?: FormEvent) {
+    e?.preventDefault()
     if (!brief.trim()) return
     update.mutate(
       {
@@ -112,25 +115,28 @@ function TaskEditor({ task, onClose }: { task: Task; onClose: () => void }) {
           due_at: fromDateInput(due),
           priority: priority ? Number(priority) : null,
           recur: recur || null,
-          thing_id: thingId ? Number(thingId) : null,
+          page_id: pageId ? Number(pageId) : null,
         },
       },
       { onSuccess: onClose },
     )
   }
 
-  const sorted = [...things].sort((a, b) => a.path.localeCompare(b.path))
+  const sorted = [...pages].sort((a, b) => a.path.localeCompare(b.path))
 
   return (
     <form className="panel editor" onSubmit={save} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+      {task.details && (
+        <div className="task-details-full"><Markdown source={task.details} /></div>
+      )}
       <label className="field">
         <span>Brief</span>
         <input value={brief} onChange={(e) => setBrief(e.target.value)} required />
       </label>
-      <label className="field">
+      <div className="field">
         <span>Details</span>
-        <textarea rows={3} value={details} onChange={(e) => setDetails(e.target.value)} />
-      </label>
+        <MarkdownEditor value={details} onChange={setDetails} onSubmit={() => save()} rows={3} label="Details" placeholder="Notes, links, e.g. Follow [[Replace fridge water filter]]" full={false} />
+      </div>
       <div className="field-grid">
         <label className="field">
           <span>Due</span>
@@ -152,10 +158,10 @@ function TaskEditor({ task, onClose }: { task: Task; onClose: () => void }) {
           </select>
         </label>
         <label className="field">
-          <span>Thing</span>
-          <select value={thingId} onChange={(e) => setThingId(e.target.value)}>
+          <span>Page</span>
+          <select value={pageId} onChange={(e) => setPageId(e.target.value)}>
             <option value="">None</option>
-            {sorted.map((th) => <option key={th.id} value={th.id}>{th.path}</option>)}
+            {sorted.map((p) => <option key={p.id} value={p.id}>{p.path}</option>)}
           </select>
         </label>
       </div>

@@ -1,39 +1,26 @@
-import { useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { api, type Note } from '../api.ts'
 import { useMutate } from '../hooks.ts'
 import { href } from '../route.ts'
 import { shortDate } from '../time.ts'
+import { Markdown } from './Markdown.tsx'
+import { MarkdownEditor } from './MarkdownEditor.tsx'
 
-/** Cmd/Ctrl+Enter submits a textarea's form. */
-function submitOnModEnter(e: KeyboardEvent<HTMLTextAreaElement>) {
-  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-    e.preventDefault()
-    e.currentTarget.form?.requestSubmit()
-  }
-}
-
-export function AddNote({ thingId, placeholder = 'Jot something down…' }: { thingId: number | null; placeholder?: string }) {
+export function AddNote({ pageId, placeholder = 'Jot something down…' }: { pageId: number | null; placeholder?: string }) {
   const [body, setBody] = useState('')
   const create = useMutate(api.createNote)
 
-  function submit(e: FormEvent) {
-    e.preventDefault()
+  function submit(e?: FormEvent) {
+    e?.preventDefault()
     const text = body.trim()
     if (!text) return
     setBody('')
-    create.mutate({ body: text, thing_id: thingId }, { onError: () => setBody((cur) => cur || text) })
+    create.mutate({ body: text, page_id: pageId }, { onError: () => setBody((cur) => cur || text) })
   }
 
   return (
     <form className="add-note" onSubmit={submit}>
-      <textarea
-        rows={2}
-        placeholder={placeholder}
-        aria-label={placeholder}
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-        onKeyDown={submitOnModEnter}
-      />
+      <MarkdownEditor value={body} onChange={setBody} onSubmit={submit} rows={2} placeholder={placeholder} label={placeholder} full={false} />
       {body.trim() && (
         <div className="actions">
           <button type="submit" className="primary">Save note</button>
@@ -44,46 +31,51 @@ export function AddNote({ thingId, placeholder = 'Jot something down…' }: { th
   )
 }
 
-export function NoteList({ notes, showThing = false }: { notes: Note[]; showThing?: boolean }) {
+export function NoteList({ notes, showPage = false }: { notes: Note[]; showPage?: boolean }) {
   if (notes.length === 0) return null
   return (
     <ul className="notes">
-      {notes.map((n) => <NoteItem key={n.id} note={n} showThing={showThing} />)}
+      {notes.map((n) => <NoteItem key={n.id} note={n} showPage={showPage} />)}
     </ul>
   )
 }
 
-function NoteItem({ note, showThing }: { note: Note; showThing: boolean }) {
+function NoteItem({ note, showPage }: { note: Note; showPage: boolean }) {
   const [mode, setMode] = useState<'view' | 'edit' | 'confirm-delete'>('view')
   const [draft, setDraft] = useState(note.body)
   const update = useMutate((patch: { body?: string; pinned?: boolean }) => api.updateNote(note.id, patch))
   const remove = useMutate(() => api.deleteNote(note.id))
   const error = update.error ?? remove.error
 
-  function save(e: FormEvent) {
-    e.preventDefault()
+  function save(e?: FormEvent) {
+    e?.preventDefault()
     if (!draft.trim()) return
     update.mutate({ body: draft.trim() }, { onSuccess: () => setMode('view') })
+  }
+  function cancel() {
+    setDraft(note.body)
+    setMode('view')
   }
 
   return (
     <li className={note.pinned ? 'pinned' : undefined}>
       {mode === 'edit' ? (
         <form onSubmit={save}>
-          <textarea rows={4} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={submitOnModEnter} autoFocus />
+          <MarkdownEditor value={draft} onChange={setDraft} onSubmit={save} onCancel={cancel} rows={3} label="Edit note" autoFocus full={false} />
           <div className="actions">
             <button type="submit" className="primary" disabled={update.isPending}>Save</button>
-            <button type="button" onClick={() => { setDraft(note.body); setMode('view') }}>Cancel</button>
+            <button type="button" onClick={cancel}>Cancel</button>
           </div>
         </form>
       ) : (
-        <p className="body">{note.body}</p>
+        <Markdown source={note.body} />
       )}
       <div className="note-meta">
-        {showThing && note.thing_id && (
-          <a className="tag link" href={href.thing(note.thing_id)}>{note.thing_path ?? note.thing_name}</a>
+        {showPage && note.page_id && (
+          <a className="tag link" href={href.page(note.page_id)}>{note.page_path ?? note.page_title}</a>
         )}
         <time>{shortDate(note.created_at)}</time>
+        {note.task_id && <span title="Written automatically when the task was completed">from a task</span>}
         <span className="spacer" />
         {mode === 'confirm-delete' ? (
           <>

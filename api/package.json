@@ -7,9 +7,10 @@
   "type": "module",
   "main": "index.ts",
   "scripts": {
-    "dev": "node --watch --env-file-if-exists=.env index.ts",
+    "dev": "SEED_DEMO=1 node --watch --env-file-if-exists=.env index.ts",
     "start": "node --env-file-if-exists=.env index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:reset": "rm -f ../data/mymimo.db ../data/mymimo.db-wal ../data/mymimo.db-shm && echo 'Database deleted; the next dev start re-seeds demo data.'"
   },
   "dependencies": {
     "express": "^5.3.0"

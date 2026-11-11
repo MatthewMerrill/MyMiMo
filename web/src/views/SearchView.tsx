@@ -19,7 +19,7 @@ export function SearchView() {
     enabled: query !== '',
     placeholderData: keepPreviousData,
   })
-  const empty = data && !data.categories.length && !data.things.length && !data.notes.length && !data.tasks.length
+  const empty = data && !data.categories.length && !data.pages.length && !data.notes.length && !data.tasks.length
 
   return (
     <>
@@ -50,16 +50,21 @@ export function SearchView() {
               </div>
             </Section>
           )}
-          {data.things.length > 0 && (
-            <Section title="Things" count={data.things.length}>
-              <ul className="tree">
-                {data.things.map((t) => <li key={t.id}><a href={href.thing(t.id)}><span>{t.path}</span></a></li>)}
+          {data.pages.length > 0 && (
+            <Section title="Pages" count={data.pages.length}>
+              <ul className="index-list">
+                {data.pages.map((p) => (
+                  <li key={p.id}>
+                    <a href={href.page(p.id)}>{p.title}</a>
+                    <span className="counts">{p.path !== p.title ? p.path.slice(0, p.path.lastIndexOf(' › ')) : ''}</span>
+                  </li>
+                ))}
               </ul>
             </Section>
           )}
           {data.notes.length > 0 && (
             <Section title="Notes" count={data.notes.length}>
-              <NoteList notes={data.notes} showThing />
+              <NoteList notes={data.notes} showPage />
             </Section>
           )}
           {data.tasks.length > 0 && (

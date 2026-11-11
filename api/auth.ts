@@ -2,7 +2,7 @@
  * Discord OAuth2 login (authorization-code flow, `identify` scope only).
  *
  * Disabled unless DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET are set — in that
- * case every request acts as the seeded demo user, exactly as before.
+ * case every request acts as the home's owner (the first user; created if the DB is empty).
  *
  * Flow:
  *   GET /api/auth/discord/login     → sets a CSRF state cookie, redirects to Discord
@@ -14,7 +14,7 @@
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
-import { db, seed } from './db.ts';
+import { db, transaction } from './db.ts';
 import { HttpError } from './http.ts';
 
 const config = {
@@ -60,6 +60,22 @@ const insertUserStmt = db.prepare('INSERT INTO users (name, avatar_url) VALUES (
 const updateUserStmt = db.prepare('UPDATE users SET name = ?, avatar_url = ? WHERE id = ?');
 const insertHomeStmt = db.prepare('INSERT INTO homes (name) VALUES (?) RETURNING id');
 const insertHomeUserStmt = db.prepare('INSERT INTO home_users (home_id, user_id) VALUES (?, ?)');
+const ownerStmt = db.prepare(`
+    SELECT u.id, u.name, u.avatar_url FROM users u
+    WHERE EXISTS (SELECT 1 FROM home_users hu WHERE hu.user_id = u.id)
+    ORDER BY u.id LIMIT 1`);
+
+/** The first user who has a home — or a fresh "Me" + "My home" in an empty database. */
+function owner(): SessionUser {
+    const existing = ownerStmt.get() as unknown as SessionUser | undefined;
+    if (existing) return existing;
+    return transaction(() => {
+        const userId = insertUserStmt.get('Me', null)!.id as number;
+        const homeId = insertHomeStmt.get('My home')!.id as number;
+        insertHomeUserStmt.run(homeId, userId);
+        return userStmt.get(userId) as unknown as SessionUser;
+    });
+}
 
 export function userInHome(homeId: number, userId: number): boolean {
     return userInHomeStmt.get(homeId, userId) !== undefined;
@@ -85,20 +101,23 @@ function findOrCreateUser(p: DiscordProfile): number {
         return userId;
     }
 
-    let userId: number;
-    if (!anyIdentityStmt.get()) {
-        // Demo convenience while the DB is in-memory seed data: the first person
-        // to sign in adopts the seeded user, so the demo home is theirs.
-        // Remove once the DB is persistent and real accounts exist.
-        userId = seed.userId;
-        updateUserStmt.run(name, avatar, userId);
-    } else {
-        userId = insertUserStmt.get(name, avatar)!.id as number;
-        const homeId = insertHomeStmt.get(`${name}'s home`)!.id as number;
-        insertHomeUserStmt.run(homeId, userId);
-    }
-    insertIdentityStmt.run(userId, 'discord', p.id);
-    return userId;
+    return transaction(() => {
+        let userId: number;
+        const existingOwner = ownerStmt.get() as unknown as SessionUser | undefined;
+        if (!anyIdentityStmt.get() && existingOwner) {
+            // The very first sign-in adopts the existing owner, so anything created
+            // while login was disabled (or the demo seed) stays yours. Protect this
+            // with DISCORD_ALLOWED_USER_IDS so a stranger can't be first.
+            userId = existingOwner.id;
+            updateUserStmt.run(name, avatar, userId);
+        } else {
+            userId = insertUserStmt.get(name, avatar)!.id as number;
+            const homeId = insertHomeStmt.get(`${name}'s home`)!.id as number;
+            insertHomeUserStmt.run(homeId, userId);
+        }
+        insertIdentityStmt.run(userId, 'discord', p.id);
+        return userId;
+    });
 }
 
 // ---------------------------------------------------------------- cookies
@@ -131,7 +150,7 @@ function sameString(a: string, b: string): boolean {
 export function resolveUser(req: Request, res: Response, next: NextFunction) {
     let user: SessionUser | undefined;
     if (!authEnabled) {
-        user = userStmt.get(seed.userId) as unknown as SessionUser;
+        user = owner();
     } else {
         const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
         if (token) user = findSessionStmt.get(sha256(token)) as unknown as SessionUser | undefined;

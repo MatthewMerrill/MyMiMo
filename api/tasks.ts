@@ -1,4 +1,4 @@
-import { db } from './db.ts';
+import { db, transaction } from './db.ts';
 import { patchRow } from './http.ts';
 
 export interface Task {
@@ -6,10 +6,10 @@ export interface Task {
     home_id: number;
     author_id: number;
     assignee_id: number | null;
-    thing_id: number | null;
-    thing_name: string | null;
+    page_id: number | null;
+    page_title: string | null;
     brief: string;
-    details: string | null;
+    details: string | null;   // markdown
     due_at: number | null;
     priority: number | null;  // null = untriaged ("inbox"); 1 high, 2 normal, 3 low
     recur: string | null;
@@ -19,8 +19,8 @@ export interface Task {
 }
 
 export const TASK_SELECT = `
-    SELECT t.*, th.name AS thing_name
-    FROM tasks t LEFT JOIN things th ON th.id = t.thing_id`;
+    SELECT t.*, pg.title AS page_title
+    FROM tasks t LEFT JOIN pages pg ON pg.id = t.page_id`;
 
 /** Open first; then by due date (undated last), then priority, then newest. */
 export const TASK_ORDER = `
@@ -28,14 +28,23 @@ export const TASK_ORDER = `
         t.priority IS NULL DESC, t.priority, t.created_at DESC, t.id DESC`;
 
 const listStmt = db.prepare(`${TASK_SELECT} WHERE t.home_id = ? ${TASK_ORDER}`);
-const listForThingStmt = db.prepare(`${TASK_SELECT} WHERE t.home_id = ? AND t.thing_id = ? ${TASK_ORDER}`);
+const listForPageStmt = db.prepare(`${TASK_SELECT} WHERE t.home_id = ? AND t.page_id = ? ${TASK_ORDER}`);
 const getStmt = db.prepare(`${TASK_SELECT} WHERE t.home_id = ? AND t.id = ?`);
 const insertStmt = db.prepare(`
-    INSERT INTO tasks (home_id, author_id, brief, thing_id, details, due_at, priority, recur)
+    INSERT INTO tasks (home_id, author_id, brief, page_id, details, due_at, priority, recur)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`);
+const deleteStmt = db.prepare('DELETE FROM tasks WHERE home_id = ? AND id = ?');
+const spawnStmt = db.prepare(`
+    INSERT INTO tasks (home_id, author_id, assignee_id, page_id, brief, details, due_at, priority, recur)
+    SELECT home_id, author_id, assignee_id, page_id, brief, details, ?, priority, recur
+    FROM tasks WHERE id = ?`);
+const logStmt = db.prepare(`
+    INSERT INTO notes (home_id, page_id, task_id, author_id, body, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`);
+const unlogStmt = db.prepare('DELETE FROM notes WHERE home_id = ? AND task_id = ?');
 
-export function listTasks(homeId: number, thingId?: number): Task[] {
-    const rows = thingId === undefined ? listStmt.all(homeId) : listForThingStmt.all(homeId, thingId);
+export function listTasks(homeId: number, pageId?: number): Task[] {
+    const rows = pageId === undefined ? listStmt.all(homeId) : listForPageStmt.all(homeId, pageId);
     return rows as unknown as Task[];
 }
 
@@ -44,21 +53,15 @@ export function getTask(homeId: number, id: number): Task | undefined {
 }
 
 export const TASK_PATCHABLE = [
-    'brief', 'details', 'thing_id', 'assignee_id', 'due_at', 'priority', 'recur', 'completed_at',
+    'brief', 'details', 'page_id', 'assignee_id', 'due_at', 'priority', 'recur', 'completed_at',
 ] as const;
 export type TaskFields = Partial<Pick<Task, typeof TASK_PATCHABLE[number]>>;
 
 export function createTask(homeId: number, authorId: number, t: TaskFields & { brief: string }): Task {
-    const row = insertStmt.get(homeId, authorId, t.brief, t.thing_id ?? null,
+    const row = insertStmt.get(homeId, authorId, t.brief, t.page_id ?? null,
         t.details ?? null, t.due_at ?? null, t.priority ?? null, t.recur ?? null)!;
     return getTask(homeId, row.id as number)!;
 }
-
-const deleteStmt = db.prepare('DELETE FROM tasks WHERE home_id = ? AND id = ?');
-const spawnStmt = db.prepare(`
-    INSERT INTO tasks (home_id, author_id, assignee_id, thing_id, brief, details, due_at, priority, recur)
-    SELECT home_id, author_id, assignee_id, thing_id, brief, details, ?, priority, recur
-    FROM tasks WHERE id = ?`);
 
 export const RECUR_PATTERN = /^P(\d{1,3})([DWMY])$/;
 
@@ -82,27 +85,29 @@ export function advance(sec: number, recur: string): number {
 }
 
 /**
- * Completing a repeating task creates the next occurrence, due one period after
- * the old due date (so a late registration renewal keeps its anniversary). The
- * repeat moves to the new task, so reopening/re-completing the old one won't
- * spawn duplicates.
+ * Completing a task:
+ *  - on a page, writes a Log entry there ("Done: …"), removed again if the task is reopened;
+ *  - if it repeats, creates the next occurrence one period after the old due date
+ *    (so a late renewal keeps its anniversary). The repeat moves to the new task,
+ *    so reopening/re-completing the old one won't spawn duplicates.
  */
-export function updateTask(homeId: number, id: number, patch: TaskFields): Task | undefined {
+export function updateTask(homeId: number, id: number, patch: TaskFields, userId: number): Task | undefined {
     const before = getTask(homeId, id);
     if (!before) return undefined;
-    db.exec('BEGIN');
-    try {
+    transaction(() => {
         patchRow(db, 'tasks', TASK_PATCHABLE, patch, homeId, id);
         const after = getTask(homeId, id)!;
-        if (after.recur && after.completed_at != null && before.completed_at == null) {
-            spawnStmt.run(advance(after.due_at ?? after.completed_at, after.recur), id);
+        const completed = after.completed_at != null && before.completed_at == null;
+        const reopened = after.completed_at == null && before.completed_at != null;
+        if (completed && after.page_id != null) {
+            logStmt.run(homeId, after.page_id, id, userId, `Done: ${after.brief}`, after.completed_at, after.completed_at);
+        }
+        if (reopened) unlogStmt.run(homeId, id);
+        if (completed && after.recur) {
+            spawnStmt.run(advance(after.due_at ?? after.completed_at!, after.recur), id);
             patchRow(db, 'tasks', ['recur'], { recur: null }, homeId, id);
         }
-        db.exec('COMMIT');
-    } catch (e) {
-        db.exec('ROLLBACK');
-        throw e;
-    }
+    });
     return getTask(homeId, id);
 }
 

@@ -2,25 +2,25 @@ import { useEffect, useMemo, useSyncExternalStore } from 'react'
 
 export type Route =
   | { name: 'tasks' }
-  | { name: 'things' }
+  | { name: 'pages' }
+  | { name: 'page'; id: number }
+  | { name: 'wiki'; title: string }
   | { name: 'categories' }
-  | { name: 'notes' }
-  | { name: 'thing'; id: number }
   | { name: 'category'; id: number | 'uncategorized' }
+  | { name: 'notes' }
   | { name: 'search' }
 
 function parse(hash: string): Route {
   const [a, b] = hash.replace(/^#\/?/, '').split('/')
-  if (a === 'things' && b) {
-    const id = Number(b)
-    if (Number.isInteger(id) && id > 0) return { name: 'thing', id }
+  const id = Number(b)
+  const validId = Number.isInteger(id) && id > 0
+  if (a === 'pages' && validId) return { name: 'page', id }
+  if (a === 'pages') return { name: 'pages' }
+  if (a === 'wiki' && b) {
+    try { return { name: 'wiki', title: decodeURIComponent(b) } } catch { /* malformed: fall through */ }
   }
-  if (a === 'things') return { name: 'things' }
   if (a === 'categories' && b === 'uncategorized') return { name: 'category', id: 'uncategorized' }
-  if (a === 'categories' && b) {
-    const id = Number(b)
-    if (Number.isInteger(id) && id > 0) return { name: 'category', id }
-  }
+  if (a === 'categories' && validId) return { name: 'category', id }
   if (a === 'categories') return { name: 'categories' }
   if (a === 'notes') return { name: 'notes' }
   if (a === 'search') return { name: 'search' }
@@ -32,7 +32,7 @@ function subscribe(cb: () => void) {
   return () => window.removeEventListener('hashchange', cb)
 }
 
-/** Tiny hash router: #/ · #/things[/:id] · #/categories[/:id|uncategorized] · #/notes · #/search */
+/** Tiny hash router: #/ · #/pages[/:id] · #/wiki/:title · #/categories[/:id|uncategorized] · #/notes · #/search */
 export function useRoute(): Route {
   const hash = useSyncExternalStore(subscribe, () => window.location.hash)
   useEffect(() => window.scrollTo(0, 0), [hash])
@@ -41,10 +41,10 @@ export function useRoute(): Route {
 
 export const href = {
   tasks: '#/',
-  things: '#/things',
-  thing: (id: number) => `#/things/${id}`,
+  pages: '#/pages',
+  page: (id: number) => `#/pages/${id}`,
   categories: '#/categories',
-  notes: '#/notes',
   category: (id: number | 'uncategorized') => `#/categories/${id}`,
+  notes: '#/notes',
   search: '#/search',
 }

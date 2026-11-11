@@ -1,18 +1,18 @@
 import { db } from './db.ts';
 import { HttpError, patchRow } from './http.ts';
-import { THING_SELECT, toThing, type Thing } from './things.ts';
+import { PAGE_SELECT, toPage, type Page } from './pages.ts';
 import { TASK_ORDER, TASK_SELECT, type Task } from './tasks.ts';
 
 export interface Category {
     id: number;
     name: string;
-    thing_count: number;
+    page_count: number;
 }
 
 const SELECT = `
     SELECT c.id, c.name,
-        (SELECT count(*) FROM thing_categories tc JOIN things th ON th.id = tc.thing_id
-         WHERE tc.category_id = c.id AND th.archived_at IS NULL) AS thing_count
+        (SELECT count(*) FROM page_categories pc JOIN pages pg ON pg.id = pc.page_id
+         WHERE pc.category_id = c.id AND pg.archived_at IS NULL) AS page_count
     FROM categories c`;
 
 const listStmt = db.prepare(`${SELECT} WHERE c.home_id = ? ORDER BY c.name`);
@@ -21,21 +21,21 @@ const byNameStmt = db.prepare('SELECT id FROM categories WHERE home_id = ? AND n
 const insertStmt = db.prepare('INSERT INTO categories (home_id, name) VALUES (?, ?) RETURNING id');
 const deleteStmt = db.prepare('DELETE FROM categories WHERE home_id = ? AND id = ?');
 const uncategorizedCountStmt = db.prepare(`
-    SELECT count(*) AS n FROM things th
-    WHERE th.home_id = ? AND th.archived_at IS NULL
-      AND NOT EXISTS (SELECT 1 FROM thing_categories tc WHERE tc.thing_id = th.id)`);
+    SELECT count(*) AS n FROM pages pg
+    WHERE pg.home_id = ? AND pg.archived_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM page_categories pc WHERE pc.page_id = pg.id)`);
 
-const thingsInStmt = db.prepare(`${THING_SELECT}
-    WHERE th.home_id = :home AND th.archived_at IS NULL
-      AND EXISTS (SELECT 1 FROM thing_categories tc WHERE tc.thing_id = th.id AND tc.category_id = :cat)
-    ORDER BY th.name COLLATE NOCASE`);
-const uncategorizedStmt = db.prepare(`${THING_SELECT}
-    WHERE th.home_id = :home AND th.archived_at IS NULL
-      AND NOT EXISTS (SELECT 1 FROM thing_categories tc WHERE tc.thing_id = th.id)
+const pagesInStmt = db.prepare(`${PAGE_SELECT}
+    WHERE pg.home_id = :home AND pg.archived_at IS NULL
+      AND EXISTS (SELECT 1 FROM page_categories pc WHERE pc.page_id = pg.id AND pc.category_id = :cat)
+    ORDER BY pg.title COLLATE NOCASE`);
+const uncategorizedStmt = db.prepare(`${PAGE_SELECT}
+    WHERE pg.home_id = :home AND pg.archived_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM page_categories pc WHERE pc.page_id = pg.id)
     ORDER BY p.path COLLATE NOCASE`);
 const tasksInStmt = db.prepare(`${TASK_SELECT}
     WHERE t.home_id = ? AND t.completed_at IS NULL
-      AND t.thing_id IN (SELECT thing_id FROM thing_categories WHERE category_id = ?)
+      AND t.page_id IN (SELECT page_id FROM page_categories WHERE category_id = ?)
     ${TASK_ORDER}`);
 
 export function listCategories(homeId: number): { categories: Category[]; uncategorized: number } {
@@ -53,19 +53,19 @@ export function assertCategory(homeId: number, id: number | null | undefined): v
     if (typeof id === 'number' && !getCategory(homeId, id)) throw new HttpError(400, 'category not found');
 }
 
-/** The category landing page: its things plus their open tasks. */
-export function categoryPage(homeId: number, id: number): { category: Category; things: Thing[]; tasks: Task[] } | undefined {
+/** The category landing page: its pages plus their open tasks. */
+export function categoryPage(homeId: number, id: number): { category: Category; pages: Page[]; tasks: Task[] } | undefined {
     const category = getCategory(homeId, id);
     if (!category) return undefined;
     return {
         category,
-        things: thingsInStmt.all({ home: homeId, cat: id }).map(toThing),
+        pages: pagesInStmt.all({ home: homeId, cat: id }).map(toPage),
         tasks: tasksInStmt.all(homeId, id) as unknown as Task[],
     };
 }
 
-export function uncategorizedThings(homeId: number): Thing[] {
-    return uncategorizedStmt.all({ home: homeId }).map(toThing);
+export function uncategorizedPages(homeId: number): Page[] {
+    return uncategorizedStmt.all({ home: homeId }).map(toPage);
 }
 
 /** Case-insensitive lookup; creates the category if it doesn't exist yet. */
@@ -82,7 +82,7 @@ export function renameCategory(homeId: number, id: number, name: string): Catego
     return getCategory(homeId, id);
 }
 
-/** Removes the category; its things stay, just untagged. */
+/** Removes the category; its pages stay, just untagged. */
 export function deleteCategory(homeId: number, id: number): boolean {
     return Number(deleteStmt.run(homeId, id).changes) > 0;
 }

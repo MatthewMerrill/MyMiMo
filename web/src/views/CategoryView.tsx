@@ -4,19 +4,19 @@ import { api, type Category } from '../api.ts'
 import { keys, useMutate } from '../hooks.ts'
 import { href } from '../route.ts'
 import { QuickAdd } from '../components/QuickAdd.tsx'
-import { ThingList } from '../components/ThingList.tsx'
+import { PageList } from '../components/PageList.tsx'
 import { TaskList } from '../components/TaskList.tsx'
 import { Section } from '../components/Section.tsx'
 
-/** Landing page for one category: everything tagged with it, and their open tasks. */
+/** Landing page for one category: every page tagged with it, and their open tasks. */
 export function CategoryView({ id }: { id: number }) {
   const { status, data, error } = useQuery({ queryKey: keys.category(id), queryFn: () => api.getCategory(id) })
-  const create = useMutate((name: string) => api.createThing({ name, category_id: id }))
+  const create = useMutate((title: string) => api.createPage({ title, category_id: id }))
   const [editing, setEditing] = useState(false)
 
   if (status === 'pending') return <p className="muted">Loading…</p>
   if (status === 'error') return <p className="error">{error.message}</p>
-  const { category, things, tasks } = data
+  const { category, pages, tasks } = data
 
   return (
     <article>
@@ -29,10 +29,10 @@ export function CategoryView({ id }: { id: number }) {
         {editing && <CategoryEditPanel category={category} onClose={() => setEditing(false)} />}
       </header>
 
-      <Section title="Things" count={things.length}>
-        <QuickAdd placeholder={`Add a thing to ${category.name}…`} onAdd={(name) => create.mutateAsync(name)} />
-        <ThingList things={things} hideCategory={id} />
-        {things.length === 0 && <p className="muted">Nothing here yet.</p>}
+      <Section title="Pages" count={pages.length}>
+        <QuickAdd placeholder={`New page in ${category.name}…`} onAdd={(title) => create.mutateAsync(title)} />
+        <PageList pages={pages} hideCategory={id} />
+        {pages.length === 0 && <p className="muted">Nothing here yet.</p>}
       </Section>
 
       {tasks.length > 0 && (
@@ -52,10 +52,10 @@ export function UncategorizedView() {
     <article>
       <nav className="crumbs" aria-label="Breadcrumb"><a href={href.categories}>Categories</a></nav>
       <header className="page-head"><h1>Uncategorized</h1></header>
-      <Section title="Things" count={data.things.length}>
+      <Section title="Pages" count={data.pages.length}>
         <p className="hint">Not in any category yet. Open one and use “+ category” to file it.</p>
-        <ThingList things={data.things} />
-        {data.things.length === 0 && <p className="muted">Everything has a category.</p>}
+        <PageList pages={data.pages} />
+        {data.pages.length === 0 && <p className="muted">Everything has a category.</p>}
       </Section>
     </article>
   )
@@ -87,7 +87,7 @@ function CategoryEditPanel({ category, onClose }: { category: Category; onClose:
         <span className="spacer" />
         {confirmDelete ? (
           <>
-            <span className="hint">Its {category.thing_count} thing(s) stay, just untagged.</span>
+            <span className="hint">Its {category.page_count} page(s) stay, just untagged.</span>
             <button
               type="button"
               className="danger"

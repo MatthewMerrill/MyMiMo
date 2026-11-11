@@ -1,20 +1,20 @@
 import { useId, useState, type FormEvent, type KeyboardEvent } from 'react'
-import { api, type Thing } from '../api.ts'
+import { api, type Page } from '../api.ts'
 import { useCategories, useMutate } from '../hooks.ts'
 import { href } from '../route.ts'
 
-/** Category chips on a thing page; type a name to add (new names create the category). */
-export function ThingCategories({ thing }: { thing: Thing }) {
+/** Category tags on a page; type a name to add (new names create the category). */
+export function PageCategories({ page }: { page: Page }) {
   const listId = useId()
   const { data } = useCategories()
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState('')
   const [active, setActive] = useState(-1)
-  const add = useMutate((n: string) => api.addThingCategory(thing.id, n))
-  const remove = useMutate((categoryId: number) => api.removeThingCategory(thing.id, categoryId))
+  const add = useMutate((n: string) => api.addPageCategory(page.id, n))
+  const remove = useMutate((categoryId: number) => api.removePageCategory(page.id, categoryId))
   const error = add.error ?? remove.error
 
-  const have = new Set(thing.categories.map((c) => c.id))
+  const have = new Set(page.categories.map((c) => c.id))
   const query = name.trim().toLowerCase()
   const suggestions = query
     ? (data?.categories ?? []).filter((c) => !have.has(c.id) && c.name.toLowerCase().includes(query)).slice(0, 6)
@@ -47,8 +47,8 @@ export function ThingCategories({ thing }: { thing: Thing }) {
   }
 
   return (
-    <div className="thing-categories">
-      {thing.categories.map((c) => (
+    <div className="page-categories">
+      {page.categories.map((c) => (
         <span key={c.id} className="tag removable">
           <a className="link" href={href.category(c.id)}>{c.name}</a>
           <button aria-label={`Remove from ${c.name}`} onClick={() => remove.mutate(c.id)}>×</button>

@@ -4,8 +4,9 @@ import { api, UNAUTHORIZED_EVENT } from './api.ts'
 import { href, useRoute } from './route.ts'
 import { NAV } from './nav.ts'
 import { TasksView } from './views/TasksView.tsx'
-import { ThingsView } from './views/ThingsView.tsx'
-import { ThingView } from './views/ThingView.tsx'
+import { PagesView } from './views/PagesView.tsx'
+import { PageView } from './views/PageView.tsx'
+import { WikiLinkView } from './views/WikiLinkView.tsx'
 import { CategoryView, UncategorizedView } from './views/CategoryView.tsx'
 import { SearchView } from './views/SearchView.tsx'
 import { SideNav } from './components/SideNav.tsx'
@@ -57,10 +58,11 @@ function Shell() {
       </aside>
       <main>
         {route.name === 'tasks' && <TasksView />}
-        {route.name === 'things' && <ThingsView />}
+        {route.name === 'pages' && <PagesView />}
         {route.name === 'categories' && <CategoriesView />}
         {route.name === 'notes' && <NotesView />}
-        {route.name === 'thing' && <ThingView key={route.id} id={route.id} />}
+        {route.name === 'page' && <PageView key={route.id} id={route.id} />}
+        {route.name === 'wiki' && <WikiLinkView key={route.title} title={route.title} />}
         {route.name === 'category' && (route.id === 'uncategorized'
           ? <UncategorizedView />
           : <CategoryView key={route.id} id={route.id} />)}
